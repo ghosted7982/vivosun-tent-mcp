@@ -1,12 +1,17 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: Read-only MCP connector for a Vivosun GrowHub grow tent.
+Description: MCP connector for a Vivosun GrowHub grow tent (reads + bounded setting changes).
 
 Parameters:
   SecretName:
     Type: String
     Default: vivosun-tent
     Description: Secrets Manager secret holding {"email","password","path_token"}
+  WritesEnabled:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Kill switch for tent_configure; "false" makes every write fail before touching a device
 
 Resources:
   TentMcpFunction:
@@ -23,6 +28,7 @@ Resources:
       Environment:
         Variables:
           SECRET_ID: !Ref SecretName
+          WRITES_ENABLED: !Ref WritesEnabled
       Policies:
         - Statement:
             - Effect: Allow

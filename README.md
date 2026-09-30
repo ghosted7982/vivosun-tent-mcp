@@ -1,12 +1,14 @@
 # vivosun-tent-mcp
 
-Read-only MCP connector that lets Claude check your Vivosun grow tent: live temp, RH and VPD, device
+MCP connector that lets Claude check your Vivosun grow tent: live temp, RH and VPD, device
 online status, every device's settings, 1–7 day climate history, and flags against the bonsai plan's
-target config. Runs as one Lambda behind a function URL in your AWS account.
+target config. It can also change a short, fixed list of settings (v2). Runs as one Lambda behind a
+function URL in your AWS account.
 
-**It cannot change anything.** No tool publishes to a device shadow, and `tests/test_offline.py` fails
-if a write path shows up in `tent.py`. Writes (clamped light %, humidity target, fan thresholds) can be
-added later as a deliberate v2.
+**Writes are bounded.** `tent_configure` can only set the duct fan mode and auto triggers, the light's
+cycle level and the humidifier's auto target, each within a safe range. It can't touch the heater or turn
+any device on or off. The read tools live in `tent.py`, which `tests/test_offline.py` keeps free of write
+code; all writes go through `control.py`.
 
 ## How it works
 - Your Vivosun login → Vivosun REST API (device list + minute-level climate log)
@@ -44,6 +46,9 @@ Then tell Claude it's connected, and it'll wire `tent_status` into the Sunday li
 ## Security model
 - The function URL is public, but anything other than `/mcp/<token>` returns 404. The 192-bit token is the credential,
   so treat the URL like a password. To rotate it: edit `path_token` in the secret, then redeploy or wait for cold starts.
+- Since v2 the URL can also change settings (within the limits above), so it matters more that it stays private.
+  Kill switch: `WRITES_ENABLED=false ./deploy.sh` makes every write fail before it reaches a device;
+  redeploy without it to turn writes back on. Every write and its readback is logged.
 - The Vivosun password lives only in Secrets Manager; the Lambda role can read only that secret.
 - Reserved concurrency of 2 caps cost and abuse. Logs are kept 14 days and never include credentials.
 - Cost: a few invocations a day → effectively $0 Lambda, plus $0.40/mo for the secret.
@@ -54,11 +59,13 @@ Then tell Claude it's connected, and it'll wire `tent_status` into the Sunday li
 | `tent_status` | current readings + settings + `flags` vs plan (temp 58–88°F alerts, RH 40–75%, light 50–75%, humidifier 55%, exhaust 82°F/70%, heater 64–68°F, level ≤2, water low, device offline (heater offline is only a note)) |
 | `tent_history` | `hours` 1–168: min/max/avg temp/RH/VPD, coverage (gaps = offline), % time outside alert bands |
 | `tent_raw_shadow` | unparsed device shadows, for debugging field mappings on your specific hardware |
+| `tent_configure` | **writes.** Any of: `duct_fan_mode` (auto/cycle/manual), `duct_fan_temp_max_f` 70–90, `duct_fan_rh_max` 50–85, `light_cycle_level_pct` 25–100, `humidifier_target_rh` 40–70. Refuses if the device is offline, then reads the device back and returns before / requested / reported per setting |
 
 Targets live in `TARGETS` at the top of `src/tent.py`.
 
 ## Tests
-`python3 tests/test_offline.py`: MCP protocol, auth path, parsing/scaling, flags. No network needed.
+`python3 tests/test_offline.py`: MCP protocol, auth path, parsing/scaling, flags, write allowlist/ranges/payloads,
+kill switch. No network needed.
 
 ## Remove
 `sam delete --stack-name vivosun-tent-mcp && aws secretsmanager delete-secret --secret-id vivosun-tent --force-delete-without-recovery`

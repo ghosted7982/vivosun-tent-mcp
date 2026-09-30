@@ -3,6 +3,7 @@
 Uses the vendored Vivosun client (REST login + device list + point log, then
 AWS IoT MQTT over websockets to fetch each device's shadow). Nothing here
 publishes to a shadow/update topic: this module cannot change device settings.
+Deliberate, bounded writes live in control.py.
 """
 
 from __future__ import annotations
@@ -63,18 +64,19 @@ async def _session_bootstrap(session: aiohttp.ClientSession, email: str, passwor
     return api, tokens, devices
 
 
-async def _fetch_shadows(session, api, tokens, devices) -> dict[str, dict[str, Any]]:
-    """Connect to AWS IoT once, request every device's shadow, collect replies."""
-    mqtt_devices = [d for d in devices if d.client_id and d.device_type != "camera"]
-    if not mqtt_devices:
-        return {}
+def _mqtt_devices(devices) -> list:
+    return [d for d in devices if d.client_id and d.device_type != "camera"]
+
+
+async def _mqtt_client(session, api, tokens, mqtt_devices) -> MQTTClient:
+    """Build (not yet connected) an AWS IoT MQTT-over-websockets client using Vivosun-issued credentials."""
     identity = await api.get_aws_identity(tokens)
     aws = AwsAuthClient(session)
     creds = await aws.get_credentials_for_identity(identity)
     url = aws.sigv4_sign_mqtt_url(endpoint=identity.aws_host, region=identity.aws_region, credentials=creds)
 
     primary = mqtt_devices[0]
-    client = MQTTClient(
+    return MQTTClient(
         websocket_url=url,
         thing=primary.client_id,
         topic_prefix=primary.topic_prefix,
@@ -82,6 +84,14 @@ async def _fetch_shadows(session, api, tokens, devices) -> dict[str, dict[str, A
         label="mcp",
         keepalive_seconds=30,
     )
+
+
+async def _fetch_shadows(session, api, tokens, devices) -> dict[str, dict[str, Any]]:
+    """Connect to AWS IoT once, request every device's shadow, collect replies."""
+    mqtt_devices = _mqtt_devices(devices)
+    if not mqtt_devices:
+        return {}
+    client = await _mqtt_client(session, api, tokens, mqtt_devices)
     results: dict[str, dict[str, Any]] = {}
     by_topic = {TOPIC_SHADOW_GET_ACCEPTED.format(thing=d.client_id): d for d in mqtt_devices}
     done = asyncio.Event()
@@ -132,16 +142,19 @@ def _sensor_block(snapshot: dict[str, int | None]) -> dict[str, Any]:
     return out
 
 
-def _summarize_settings(parsed: dict[str, Any]) -> dict[str, Any]:
+def _summarize_settings(parsed: dict[str, Any], raw: dict[str, Any] | None = None) -> dict[str, Any]:
+    raw = raw or {}
     s: dict[str, Any] = {}
     if "light" in parsed:
         li = parsed["light"]
         s["light"] = {"mode": {0: "manual", 1: "cycle/auto", 2: "plan"}.get(li.get("mode"), li.get("mode")),
-                      "level_pct": li.get("level"), "spectrum": li.get("spectrum"), "in_plan": li.get("in_plan")}
+                      "level_pct": li.get("level"), "spectrum": li.get("spectrum"), "in_plan": li.get("in_plan"),
+                      "cycle_level_pct": raw.get("light", {}).get("cycle", {}).get("lv")}
     if "dFan" in parsed:
         df = parsed["dFan"]
         a = df.get("auto", {})
-        s["duct_fan"] = {"auto": df.get("auto_enabled"), "level": df.get("level"),
+        s["duct_fan"] = {"mode": {0: "manual", 1: "auto", 2: "cycle"}.get(df.get("mode"), df.get("mode")),
+                         "auto": df.get("auto_enabled"), "level": df.get("level"),
                          "auto_thresholds": {
                              "temp_max_f": c_to_f(scaled(a.get("tMax"))), "temp_min_f": c_to_f(scaled(a.get("tMin"))),
                              "rh_max": scaled(a.get("hMax")), "rh_min": scaled(a.get("hMin")),
@@ -151,8 +164,12 @@ def _summarize_settings(parsed: dict[str, Any]) -> dict[str, Any]:
         s["circulation_fan"] = {"level": cf.get("level"), "oscillating": cf.get("oscillating"), "night_mode": cf.get("night_mode")}
     if "hmdf" in parsed:
         h = parsed["hmdf"]
+        # this firmware keeps the auto target at hmdf.auto.tHumi, which the upstream parser doesn't read
+        target = h.get("target_humidity")
+        if target is None:
+            target = raw.get("hmdf", {}).get("auto", {}).get("tHumi")
         s["humidifier"] = {"on": h.get("on"), "mode": h.get("mode"), "level": h.get("level"),
-                           "target_rh": scaled(h.get("target_humidity")), "water_warning": h.get("water_warning")}
+                           "target_rh": scaled(target), "water_warning": h.get("water_warning")}
     if "heat" in parsed:
         h = parsed["heat"]
         s["heater"] = {"on": h.get("on"), "mode": h.get("mode"), "level": h.get("level"), "state": h.get("state"),
@@ -232,7 +249,7 @@ async def get_status(email: str, password: str) -> dict[str, Any]:
                 except Exception as err:
                     entry["sensors_error"] = str(err)
             if sh and "parsed" in sh:
-                entry["settings"] = _summarize_settings(sh["parsed"])
+                entry["settings"] = _summarize_settings(sh["parsed"], sh.get("raw_reported"))
             elif sh:
                 entry["settings_error"] = sh.get("error")
             all_flags += _flags(entry.get("sensors", {}), entry.get("settings", {}))

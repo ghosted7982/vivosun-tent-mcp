@@ -1,8 +1,8 @@
 """Minimal stateless MCP server (Streamable HTTP, JSON responses) on a Lambda function URL.
 
-Read-only: exposes tent status / history / raw shadow. No tool writes to devices.
-Auth: the URL path must be /mcp/<path_token>; the token lives in Secrets Manager
-next to the Vivosun credentials. Anything else gets a bare 404.
+Exposes tent status / history / raw shadow (read-only, tent.py) and one bounded write tool,
+tent_configure (control.py). Auth: the URL path must be /mcp/<path_token>; the token lives in
+Secrets Manager next to the Vivosun credentials. Anything else gets a bare 404.
 """
 
 from __future__ import annotations
@@ -15,12 +15,13 @@ import logging
 import os
 from typing import Any
 
+import control
 import tent
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
 
-SERVER_INFO = {"name": "vivosun-tent", "version": "0.1.0"}
+SERVER_INFO = {"name": "vivosun-tent", "version": "0.2.0"}
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
 TOOLS = [
@@ -55,6 +56,31 @@ TOOLS = [
         "description": "Unparsed AWS IoT shadow 'reported' state per device. Use only to debug field mappings. Read-only.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         "annotations": {"readOnlyHint": True, "openWorldHint": True},
+    },
+    {
+        "name": "tent_configure",
+        "title": "Grow tent: change settings",
+        "description": (
+            "Change a few tent settings on the real devices. Only these, only in these ranges: duct fan mode "
+            "(auto/cycle/manual), duct fan auto triggers (temp max 70–90°F, RH max 50–85%), light cycle level "
+            "(25–100%), humidifier auto target RH (40–70%). Cannot touch the heater or turn anything on/off. "
+            "Confirm the exact change with Romas before calling. Returns before/requested/reported per setting; "
+            "'applied: false' means the device has not confirmed it yet."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "duct_fan_mode": {"type": "string", "enum": list(control.DUCT_FAN_MODES)},
+                "duct_fan_temp_max_f": {"type": "number", "minimum": 70, "maximum": 90},
+                "duct_fan_rh_max": {"type": "number", "minimum": 50, "maximum": 85},
+                "light_cycle_level_pct": {"type": "integer", "minimum": 25, "maximum": 100},
+                "humidifier_target_rh": {"type": "number", "minimum": 40, "maximum": 70},
+            },
+            "minProperties": 1,
+            "additionalProperties": False,
+        },
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,
+                        "openWorldHint": True},
     },
 ]
 
@@ -97,6 +123,8 @@ def _call_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
             data = asyncio.run(tent.get_history(s["email"], s["password"], int(args.get("hours", 24))))
         elif name == "tent_raw_shadow":
             data = asyncio.run(tent.get_raw(s["email"], s["password"]))
+        elif name == "tent_configure":
+            data = asyncio.run(control.configure(s["email"], s["password"], args))
         else:
             return {"content": [{"type": "text", "text": f"Unknown tool {name}"}], "isError": True}
     except Exception as err:  # surface a clean tool error; never leak credentials
@@ -114,7 +142,8 @@ def _handle(msg: dict[str, Any]) -> dict[str, Any] | None:
         version = requested if requested in SUPPORTED_PROTOCOLS else SUPPORTED_PROTOCOLS[0]
         return _result(req_id, {"protocolVersion": version, "capabilities": {"tools": {"listChanged": False}},
                                 "serverInfo": SERVER_INFO,
-                                "instructions": "Read-only monitor for Romas's bonsai grow tent (Vivosun GrowHub)."})
+                                "instructions": ("Monitor for Romas's bonsai grow tent (Vivosun GrowHub). "
+                                                 "tent_configure changes real devices: confirm first.")})
     if method == "ping":
         return _result(req_id, {})
     if method == "tools/list":

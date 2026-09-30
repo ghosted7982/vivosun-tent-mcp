@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # One-shot deploy: creates the secret (prompts once), builds, deploys, prints the connector URL.
+# WRITES_ENABLED=false turns off tent_configure (kill switch).
 # Needs: AWS CLI v2 (logged in), AWS SAM CLI, python3, openssl.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -20,7 +21,7 @@ fi
 
 ./build.sh
 sam deploy --template-file template.yaml --stack-name "$STACK" --resolve-s3 \
-  --capabilities CAPABILITY_IAM --parameter-overrides "SecretName=$SECRET" \
+  --capabilities CAPABILITY_IAM --parameter-overrides "SecretName=$SECRET" "WritesEnabled=${WRITES_ENABLED:-true}" \
   --no-confirm-changeset --no-fail-on-empty-changeset
 
 URL="$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='FunctionUrl'].OutputValue" --output text)"

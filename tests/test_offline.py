@@ -2,7 +2,8 @@
 import json, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 os.environ.update(VIVOSUN_EMAIL="x@y.z", VIVOSUN_PASSWORD="pw", MCP_PATH_TOKEN="tok123")
-import app, tent
+import asyncio
+import app, control, tent
 from vivosun.shadow import parse_shadow_document
 
 def ev(body, path="/mcp/tok123", method="POST"):
@@ -18,9 +19,9 @@ assert r["result"]["protocolVersion"] == "2025-06-18" and r["result"]["capabilit
 assert app.handler(ev({"jsonrpc":"2.0","method":"notifications/initialized"}))["statusCode"] == 202
 r = json.loads(app.handler(ev({"jsonrpc":"2.0","id":2,"method":"tools/list"}))["body"])
 names = [t["name"] for t in r["result"]["tools"]]
-assert names == ["tent_status","tent_history","tent_raw_shadow"], names
-assert all(t["annotations"]["readOnlyHint"] for t in r["result"]["tools"])
-# no write tools / no shadow update code paths
+assert names == ["tent_status","tent_history","tent_raw_shadow","tent_configure"], names
+assert [t["name"] for t in r["result"]["tools"] if not t["annotations"]["readOnlyHint"]] == ["tent_configure"]
+# tent.py stays read-only: writes live only in control.py
 src = open(os.path.join(os.path.dirname(__file__), "..", "src", "tent.py")).read()
 assert "publish_shadow_update" not in src and "TOPIC_SHADOW_UPDATE" not in src and "build_" not in src
 
@@ -55,4 +56,43 @@ probe_flags = " | ".join(tent._flags(tent._sensor_block({"pTemp": 1300, "pHumi":
 assert "tent temp 55.4" in probe_flags and "RH 35.0" in probe_flags, probe_flags
 h = tent._history_stats([{"pTemp": 2200, "pHumi": 5500, "pVpd": 120}], 1)
 assert h["temp_f"]["avg"] == 71.6 and h["rh_pct"]["avg"] == 55.0, h
+
+# --- v2 writes (control.py) ---
+p = control.plan_changes({"duct_fan_mode": "auto", "duct_fan_temp_max_f": 82, "duct_fan_rh_max": 70,
+                          "humidifier_target_rh": 55})
+assert set(p) == {"controller", "humidifier"}
+assert control.build_desired(p["controller"]) == {"state": {"desired": {"dFan": {"mode": 1, "auto": {"tMax": 2778, "hMax": 7000}}}}}
+assert control.build_desired(p["humidifier"]) == {"state": {"desired": {"hmdf": {"auto": {"tHumi": 5500}}}}}
+assert control.build_desired(control.plan_changes({"light_cycle_level_pct": 65})["controller"]) == \
+    {"state": {"desired": {"light": {"cycle": {"lv": 65}}}}}
+# 82°F round-trips through the raw °C×100 value the device stores
+assert control.FIELDS["duct_fan_temp_max_f"].from_raw(2778) == 82.0
+# nothing outside the allowlist or its ranges gets through
+for bad in [{}, {"heater_target_f": 66}, {"duct_fan_temp_max_f": 95}, {"duct_fan_rh_max": 40},
+            {"humidifier_target_rh": 80}, {"light_cycle_level_pct": 10}, {"duct_fan_mode": "off"},
+            {"duct_fan_rh_max": True}, {"humidifier_target_rh": "55"}]:
+    try:
+        control.plan_changes(bad)
+        raise AssertionError(f"accepted {bad}")
+    except ValueError:
+        pass
+assert all(f.device_type != "heater" and f.path[0] != "heat" for f in control.FIELDS.values())
+# kill switch refuses before any network call
+os.environ["WRITES_ENABLED"] = "false"
+try:
+    asyncio.run(control.configure("x", "y", {"duct_fan_rh_max": 70}))
+    raise AssertionError("write ran with WRITES_ENABLED=false")
+except PermissionError:
+    pass
+del os.environ["WRITES_ENABLED"]
+# the MCP schema and the server-side limits agree
+schema = next(t for t in app.TOOLS if t["name"] == "tent_configure")["inputSchema"]["properties"]
+for name, f in control.FIELDS.items():
+    if f.lo is not None:
+        assert (schema[name]["minimum"], schema[name]["maximum"]) == (f.lo, f.hi), name
+assert set(schema) == set(control.FIELDS)
+# settings summary reads the firmware's humidifier target and light cycle level
+raw = {"hmdf": {"mode": 2, "auto": {"tHumi": 6000}}, "light": {"mode": 0, "cycle": {"lv": 82}}}
+summ = tent._summarize_settings(parse_shadow_document({"state": {"reported": raw}}), raw)
+assert summ["humidifier"]["target_rh"] == 60.0 and summ["light"]["cycle_level_pct"] == 82, summ
 print("ALL OFFLINE TESTS PASSED")
