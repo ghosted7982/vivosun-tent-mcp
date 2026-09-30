@@ -6,7 +6,7 @@ target config. It can also change a short, fixed list of settings (v2). Runs as 
 function URL in your AWS account.
 
 **Writes are bounded.** `tent_configure` can only set the duct fan mode and auto triggers, the light's
-cycle level and the humidifier's auto target, each within a safe range. It can't touch the heater or turn
+cycle level and the humidifier's mode (auto/cycle) and auto target, each within a safe range. It can't touch the heater or turn
 any device on or off. The read tools live in `tent.py`, which `tests/test_offline.py` keeps free of write
 code; all writes go through `control.py`.
 
@@ -59,7 +59,7 @@ Then tell Claude it's connected, and it'll wire `tent_status` into the Sunday li
 | `tent_status` | current readings + settings + `flags` vs plan (temp 58–88°F alerts, RH 40–75%, light 50–75%, humidifier 55%, exhaust 82°F/70%, heater 64–68°F, level ≤2, water low, device offline (heater offline is only a note)) |
 | `tent_history` | `hours` 1–168: min/max/avg temp/RH/VPD, coverage (gaps = offline), % time outside alert bands |
 | `tent_raw_shadow` | unparsed device shadows, for debugging field mappings on your specific hardware |
-| `tent_configure` | **writes.** Any of: `duct_fan_mode` (auto/cycle/manual), `duct_fan_temp_max_f` 70–90, `duct_fan_rh_max` 50–85, `light_cycle_level_pct` 25–100, `humidifier_target_rh` 40–70. Refuses if the device is offline, then reads the device back and returns before / requested / reported per setting |
+| `tent_configure` | **writes.** Any of: `duct_fan_mode` (auto/cycle/manual), `duct_fan_temp_max_f` 70–90, `duct_fan_rh_max` 50–85, `light_cycle_level_pct` 25–100, `humidifier_mode` (auto/cycle), `humidifier_target_rh` 40–70. Refuses if the device is offline, then reads the device back and returns before / requested / reported per setting |
 
 Targets live in `TARGETS` at the top of `src/tent.py`.
 

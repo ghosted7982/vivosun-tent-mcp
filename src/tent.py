@@ -168,7 +168,8 @@ def _summarize_settings(parsed: dict[str, Any], raw: dict[str, Any] | None = Non
         target = h.get("target_humidity")
         if target is None:
             target = raw.get("hmdf", {}).get("auto", {}).get("tHumi")
-        s["humidifier"] = {"on": h.get("on"), "mode": h.get("mode"), "level": h.get("level"),
+        s["humidifier"] = {"on": h.get("on"), "mode": {0: "manual", 1: "auto", 2: "cycle"}.get(h.get("mode"), h.get("mode")),
+                           "level": h.get("level"),
                            "target_rh": scaled(target), "water_warning": h.get("water_warning")}
     if "heat" in parsed:
         h = parsed["heat"]

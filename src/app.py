@@ -63,7 +63,8 @@ TOOLS = [
         "description": (
             "Change a few tent settings on the real devices. Only these, only in these ranges: duct fan mode "
             "(auto/cycle/manual), duct fan auto triggers (temp max 70–90°F, RH max 50–85%), light cycle level "
-            "(25–100%), humidifier auto target RH (40–70%). Cannot touch the heater or turn anything on/off. "
+            "(25–100%), humidifier mode (auto/cycle), humidifier auto target RH (40–70%). The humidifier only "
+            "aims for its target RH in auto mode. Cannot touch the heater or turn anything on/off. "
             "Confirm the exact change with Romas before calling. Returns before/requested/reported per setting; "
             "'applied: false' means the device has not confirmed it yet."
         ),
@@ -75,6 +76,7 @@ TOOLS = [
                 "duct_fan_rh_max": {"type": "number", "minimum": 50, "maximum": 85},
                 "light_cycle_level_pct": {"type": "integer", "minimum": 25, "maximum": 100},
                 "humidifier_target_rh": {"type": "number", "minimum": 40, "maximum": 70},
+                "humidifier_mode": {"type": "string", "enum": list(control.HUMIDIFIER_MODES)},
             },
             "minProperties": 1,
             "additionalProperties": False,

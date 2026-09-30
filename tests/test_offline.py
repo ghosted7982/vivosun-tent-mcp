@@ -63,13 +63,16 @@ p = control.plan_changes({"duct_fan_mode": "auto", "duct_fan_temp_max_f": 82, "d
 assert set(p) == {"controller", "humidifier"}
 assert control.build_desired(p["controller"]) == {"state": {"desired": {"dFan": {"mode": 1, "auto": {"tMax": 2778, "hMax": 7000}}}}}
 assert control.build_desired(p["humidifier"]) == {"state": {"desired": {"hmdf": {"auto": {"tHumi": 5500}}}}}
+assert control.build_desired(control.plan_changes({"humidifier_mode": "auto", "humidifier_target_rh": 55})["humidifier"]) == \
+    {"state": {"desired": {"hmdf": {"mode": 1, "auto": {"tHumi": 5500}}}}}
+assert control.FIELDS["humidifier_mode"].from_raw(2) == "cycle"
 assert control.build_desired(control.plan_changes({"light_cycle_level_pct": 65})["controller"]) == \
     {"state": {"desired": {"light": {"cycle": {"lv": 65}}}}}
 # 82°F round-trips through the raw °C×100 value the device stores
 assert control.FIELDS["duct_fan_temp_max_f"].from_raw(2778) == 82.0
 # nothing outside the allowlist or its ranges gets through
 for bad in [{}, {"heater_target_f": 66}, {"duct_fan_temp_max_f": 95}, {"duct_fan_rh_max": 40},
-            {"humidifier_target_rh": 80}, {"light_cycle_level_pct": 10}, {"duct_fan_mode": "off"},
+            {"humidifier_target_rh": 80}, {"light_cycle_level_pct": 10}, {"duct_fan_mode": "off"}, {"humidifier_mode": "manual"},
             {"duct_fan_rh_max": True}, {"humidifier_target_rh": "55"}]:
     try:
         control.plan_changes(bad)
@@ -88,7 +91,9 @@ del os.environ["WRITES_ENABLED"]
 # the MCP schema and the server-side limits agree
 schema = next(t for t in app.TOOLS if t["name"] == "tent_configure")["inputSchema"]["properties"]
 for name, f in control.FIELDS.items():
-    if f.lo is not None:
+    if f.choices is not None:
+        assert schema[name]["enum"] == list(f.choices), name
+    else:
         assert (schema[name]["minimum"], schema[name]["maximum"]) == (f.lo, f.hi), name
 assert set(schema) == set(control.FIELDS)
 # settings summary reads the firmware's humidifier target and light cycle level

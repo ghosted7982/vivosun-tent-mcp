@@ -33,6 +33,9 @@ READBACK_ATTEMPTS = 5
 READBACK_INTERVAL_SECONDS = 2.0
 
 DUCT_FAN_MODES = {"manual": 0, "auto": 1, "cycle": 2}
+# No "manual" for the humidifier: it runs at a fixed output and ignores RH (mold risk).
+HUMIDIFIER_MODES = {"auto": 1, "cycle": 2}
+MODE_NAMES = {0: "manual", 1: "auto", 2: "cycle"}
 
 
 def _f_to_raw_c(f: float) -> int:
@@ -50,17 +53,22 @@ class Field(NamedTuple):
     hi: float | None
     to_raw: Callable[[Any], int]
     from_raw: Callable[[int], Any]
+    choices: dict[str, int] | None = None  # for enum settings instead of lo/hi
+
+
+def _mode_field(device_type: str, key: str, modes: dict[str, int]) -> Field:
+    return Field(device_type, (key, "mode"), None, None, modes.__getitem__, lambda raw: MODE_NAMES.get(raw, raw), modes)
 
 
 # Everything tent_configure can touch. No heater entries, no on/off switches.
 FIELDS: dict[str, Field] = {
-    "duct_fan_mode": Field("controller", ("dFan", "mode"), None, None, DUCT_FAN_MODES.__getitem__,
-                           lambda raw: {v: k for k, v in DUCT_FAN_MODES.items()}.get(raw, raw)),
+    "duct_fan_mode": _mode_field("controller", "dFan", DUCT_FAN_MODES),
     "duct_fan_temp_max_f": Field("controller", ("dFan", "auto", "tMax"), 70, 90, _f_to_raw_c,
                                  lambda raw: tent.c_to_f(tent.scaled(raw))),
     "duct_fan_rh_max": Field("controller", ("dFan", "auto", "hMax"), 50, 85, _pct_to_raw, tent.scaled),
     "light_cycle_level_pct": Field("controller", ("light", "cycle", "lv"), 25, 100, int, lambda raw: raw),
     "humidifier_target_rh": Field("humidifier", ("hmdf", "auto", "tHumi"), 40, 70, _pct_to_raw, tent.scaled),
+    "humidifier_mode": _mode_field("humidifier", "hmdf", HUMIDIFIER_MODES),
 }
 
 
@@ -80,9 +88,9 @@ def plan_changes(args: dict[str, Any]) -> dict[str, list[Change]]:
         field = FIELDS.get(name)
         if field is None:
             raise ValueError(f"unsupported setting {name!r}; allowed: {', '.join(FIELDS)}")
-        if name == "duct_fan_mode":
-            if value not in DUCT_FAN_MODES:
-                raise ValueError(f"duct_fan_mode must be one of {list(DUCT_FAN_MODES)}")
+        if field.choices is not None:
+            if value not in field.choices:
+                raise ValueError(f"{name} must be one of {list(field.choices)}, got {value!r}")
         elif isinstance(value, bool) or not isinstance(value, (int, float)) or not field.lo <= value <= field.hi:
             raise ValueError(f"{name} must be a number from {field.lo} to {field.hi}, got {value!r}")
         plan.setdefault(field.device_type, []).append(Change(name, field, value, field.to_raw(value)))
