@@ -66,13 +66,16 @@ assert control.build_desired(p["humidifier"]) == {"state": {"desired": {"hmdf": 
 assert control.build_desired(control.plan_changes({"humidifier_mode": "auto", "humidifier_target_rh": 55})["humidifier"]) == \
     {"state": {"desired": {"hmdf": {"mode": 1, "auto": {"tHumi": 5500}}}}}
 assert control.FIELDS["humidifier_mode"].from_raw(2) == "cycle"
+assert control.build_desired(control.plan_changes({"light_mode": "cycle", "light_cycle_level_pct": 50})["controller"]) == \
+    {"state": {"desired": {"light": {"mode": 1, "cycle": {"lv": 50}}}}}
+assert control.FIELDS["light_mode"].from_raw(1) == "cycle" and control.FIELDS["light_mode"].from_raw(0) == "manual"
 assert control.build_desired(control.plan_changes({"light_cycle_level_pct": 65})["controller"]) == \
     {"state": {"desired": {"light": {"cycle": {"lv": 65}}}}}
 # 82°F round-trips through the raw °C×100 value the device stores
 assert control.FIELDS["duct_fan_temp_max_f"].from_raw(2778) == 82.0
 # nothing outside the allowlist or its ranges gets through
 for bad in [{}, {"heater_target_f": 80}, {"heater_target_f": 55}, {"heater_level": 2}, {"duct_fan_temp_max_f": 95}, {"duct_fan_rh_max": 40},
-            {"humidifier_target_rh": 80}, {"light_cycle_level_pct": 10}, {"duct_fan_mode": "off"}, {"humidifier_mode": "manual"},
+            {"humidifier_target_rh": 80}, {"light_cycle_level_pct": 10}, {"duct_fan_mode": "off"}, {"humidifier_mode": "manual"}, {"light_mode": "plan"}, {"light_mode": "auto"},
             {"duct_fan_rh_max": True}, {"humidifier_target_rh": "55"}]:
     try:
         control.plan_changes(bad)

@@ -62,7 +62,8 @@ TOOLS = [
         "title": "Grow tent: change settings",
         "description": (
             "Change a few tent settings on the real devices. Only these, only in these ranges: duct fan mode "
-            "(auto/cycle/manual), duct fan auto triggers (temp max 70–90°F, RH max 50–85%), light cycle level "
+            "(auto/cycle/manual), duct fan auto triggers (temp max 70–90°F, RH max 50–85%), light mode "
+            "(cycle = run the on/off schedule at the cycle level; manual = fixed manual level), light cycle level "
             "(25–100%), humidifier mode (auto/cycle), humidifier auto target RH (40–70%). The humidifier only "
             "aims for its target RH in auto mode. Heater target temperature (60–72°F) only; cannot change other "
             "heater settings or turn anything on/off. "
@@ -75,6 +76,7 @@ TOOLS = [
                 "duct_fan_mode": {"type": "string", "enum": list(control.DUCT_FAN_MODES)},
                 "duct_fan_temp_max_f": {"type": "number", "minimum": 70, "maximum": 90},
                 "duct_fan_rh_max": {"type": "number", "minimum": 50, "maximum": 85},
+                "light_mode": {"type": "string", "enum": list(control.LIGHT_MODES)},
                 "light_cycle_level_pct": {"type": "integer", "minimum": 25, "maximum": 100},
                 "humidifier_target_rh": {"type": "number", "minimum": 40, "maximum": 70},
                 "humidifier_mode": {"type": "string", "enum": list(control.HUMIDIFIER_MODES)},

@@ -35,7 +35,10 @@ READBACK_INTERVAL_SECONDS = 2.0
 DUCT_FAN_MODES = {"manual": 0, "auto": 1, "cycle": 2}
 # No "manual" for the humidifier: it runs at a fixed output and ignores RH (mold risk).
 HUMIDIFIER_MODES = {"auto": 1, "cycle": 2}
+# The light numbers its modes differently (1 = cycle, 2 = GrowHub plan). No "plan": none is set up.
+LIGHT_MODES = {"manual": 0, "cycle": 1}
 MODE_NAMES = {0: "manual", 1: "auto", 2: "cycle"}
+LIGHT_MODE_NAMES = {0: "manual", 1: "cycle", 2: "plan"}
 
 
 def _f_to_raw_c(f: float) -> int:
@@ -56,8 +59,8 @@ class Field(NamedTuple):
     choices: dict[str, int] | None = None  # for enum settings instead of lo/hi
 
 
-def _mode_field(device_type: str, key: str, modes: dict[str, int]) -> Field:
-    return Field(device_type, (key, "mode"), None, None, modes.__getitem__, lambda raw: MODE_NAMES.get(raw, raw), modes)
+def _mode_field(device_type: str, key: str, modes: dict[str, int], names: dict[int, str] = MODE_NAMES) -> Field:
+    return Field(device_type, (key, "mode"), None, None, modes.__getitem__, lambda raw: names.get(raw, raw), modes)
 
 
 # Everything tent_configure can touch. No on/off switches. The heater gets only its target
@@ -67,6 +70,7 @@ FIELDS: dict[str, Field] = {
     "duct_fan_temp_max_f": Field("controller", ("dFan", "auto", "tMax"), 70, 90, _f_to_raw_c,
                                  lambda raw: tent.c_to_f(tent.scaled(raw))),
     "duct_fan_rh_max": Field("controller", ("dFan", "auto", "hMax"), 50, 85, _pct_to_raw, tent.scaled),
+    "light_mode": _mode_field("controller", "light", LIGHT_MODES, LIGHT_MODE_NAMES),
     "light_cycle_level_pct": Field("controller", ("light", "cycle", "lv"), 25, 100, int, lambda raw: raw),
     "humidifier_target_rh": Field("humidifier", ("hmdf", "auto", "tHumi"), 40, 70, _pct_to_raw, tent.scaled),
     "humidifier_mode": _mode_field("humidifier", "hmdf", HUMIDIFIER_MODES),

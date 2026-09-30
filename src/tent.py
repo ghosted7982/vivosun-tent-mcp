@@ -149,7 +149,7 @@ def _summarize_settings(parsed: dict[str, Any], raw: dict[str, Any] | None = Non
     s: dict[str, Any] = {}
     if "light" in parsed:
         li = parsed["light"]
-        s["light"] = {"mode": {0: "manual", 1: "cycle/auto", 2: "plan"}.get(li.get("mode"), li.get("mode")),
+        s["light"] = {"mode": {0: "manual", 1: "cycle", 2: "plan"}.get(li.get("mode"), li.get("mode")),
                       "level_pct": li.get("level"), "spectrum": li.get("spectrum"), "in_plan": li.get("in_plan"),
                       "cycle_level_pct": raw.get("light", {}).get("cycle", {}).get("lv")}
     if "dFan" in parsed:
