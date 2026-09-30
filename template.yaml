@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Read-only MCP connector for a Vivosun GrowHub grow tent.
+
+Parameters:
+  SecretName:
+    Type: String
+    Default: vivosun-tent
+    Description: Secrets Manager secret holding {"email","password","path_token"}
+
+Resources:
+  TentMcpFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: vivosun-tent-mcp
+      Runtime: python3.12
+      Architectures: [arm64]
+      Handler: app.handler
+      CodeUri: build/
+      MemorySize: 256
+      Timeout: 60
+      ReservedConcurrentExecutions: 2   # hard cap on cost/abuse
+      Environment:
+        Variables:
+          SECRET_ID: !Ref SecretName
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretName}-*
+      FunctionUrlConfig:
+        AuthType: NONE          # protected by the secret path token; Claude connectors can't SigV4
+        InvokeMode: BUFFERED
+
+  TentMcpLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/vivosun-tent-mcp
+      RetentionInDays: 14
+
+Outputs:
+  FunctionUrl:
+    Value: !GetAtt TentMcpFunctionUrl.FunctionUrl

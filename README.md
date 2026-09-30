@@ -1,0 +1,64 @@
+# vivosun-tent-mcp
+
+Read-only MCP connector that lets Claude check your Vivosun grow tent: live temp, RH and VPD, device
+online status, every device's settings, 1–7 day climate history, and flags against the bonsai plan's
+target config. Runs as one Lambda behind a function URL in your AWS account.
+
+**It cannot change anything.** No tool publishes to a device shadow, and `tests/test_offline.py` fails
+if a write path shows up in `tent.py`. Writes (clamped light %, humidity target, fan thresholds) can be
+added later as a deliberate v2.
+
+## How it works
+- Your Vivosun login → Vivosun REST API (device list + minute-level climate log)
+- Temporary AWS IoT credentials (Cognito, issued by Vivosun) → MQTT over websockets → reads each device's shadow
+- The client code in `src/vivosun/` is vendored unmodified from
+  [lientry/homeassistant-vivosun-growhub](https://github.com/lientry/homeassistant-vivosun-growhub) (MIT, commit in
+  `src/vivosun/__init__.py`); only `const.py` drops its Home Assistant import. When Vivosun changes their app and
+  upstream ships a fix, re-copy those files and redeploy.
+
+Unofficial: it uses the same cloud API the phone app uses. It breaks when Vivosun changes auth or
+encryption until upstream catches up. Vivosun's in-app alerts stay your backstop.
+
+## Deploy (about 5 minutes)
+Needs AWS CLI v2 (logged in to the account/region you want), AWS SAM CLI, python3, openssl.
+
+```bash
+# optional: test from your laptop first (read-only)
+pip install -r requirements.txt
+VIVOSUN_EMAIL=you@example.com VIVOSUN_PASSWORD='…' python3 scripts/smoke.py status
+
+./deploy.sh      # prompts once for your Vivosun login → Secrets Manager; prints the connector URL
+```
+
+`deploy.sh` stores `{"email","password","path_token"}` in Secrets Manager secret `vivosun-tent`,
+builds a Linux/arm64 bundle (no Docker), deploys stack `vivosun-tent-mcp`, and prints:
+
+```
+https://<id>.lambda-url.<region>.on.aws/mcp/<48-hex-token>
+```
+
+## Add it to Claude
+Settings → Connectors → **Add custom connector** → name it `Vivosun tent` → paste the URL → Add.
+Then tell Claude it's connected, and it'll wire `tent_status` into the Sunday list and weekday alerts.
+
+## Security model
+- The function URL is public, but anything other than `/mcp/<token>` returns 404. The 192-bit token is the credential,
+  so treat the URL like a password. To rotate it: edit `path_token` in the secret, then redeploy or wait for cold starts.
+- The Vivosun password lives only in Secrets Manager; the Lambda role can read only that secret.
+- Reserved concurrency of 2 caps cost and abuse. Logs are kept 14 days and never include credentials.
+- Cost: a few invocations a day → effectively $0 Lambda, plus $0.40/mo for the secret.
+
+## Tools
+| tool | what |
+|---|---|
+| `tent_status` | current readings + settings + `flags` vs plan (temp 58–88°F alerts, RH 40–75%, light 50–75%, humidifier 55%, exhaust 82°F/70%, heater 64–68°F, level ≤2, water low, device offline) |
+| `tent_history` | `hours` 1–168: min/max/avg temp/RH/VPD, coverage (gaps = offline), % time outside alert bands |
+| `tent_raw_shadow` | unparsed device shadows, for debugging field mappings on your specific hardware |
+
+Targets live in `TARGETS` at the top of `src/tent.py`.
+
+## Tests
+`python3 tests/test_offline.py`: MCP protocol, auth path, parsing/scaling, flags. No network needed.
+
+## Remove
+`sam delete --stack-name vivosun-tent-mcp && aws secretsmanager delete-secret --secret-id vivosun-tent --force-delete-without-recovery`
