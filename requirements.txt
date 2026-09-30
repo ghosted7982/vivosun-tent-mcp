@@ -1,3 +1,5 @@
 aiohttp>=3.9,<4
 websockets>=12
 cryptography>=42
+# needed on the py3.12 Lambda; pip skips it when build.sh runs under python >= 3.13
+typing_extensions>=4.4
