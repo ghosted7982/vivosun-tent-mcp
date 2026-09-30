@@ -51,7 +51,7 @@ Then tell Claude it's connected, and it'll wire `tent_status` into the Sunday li
 ## Tools
 | tool | what |
 |---|---|
-| `tent_status` | current readings + settings + `flags` vs plan (temp 58–88°F alerts, RH 40–75%, light 50–75%, humidifier 55%, exhaust 82°F/70%, heater 64–68°F, level ≤2, water low, device offline) |
+| `tent_status` | current readings + settings + `flags` vs plan (temp 58–88°F alerts, RH 40–75%, light 50–75%, humidifier 55%, exhaust 82°F/70%, heater 64–68°F, level ≤2, water low, device offline (heater offline is only a note)) |
 | `tent_history` | `hours` 1–168: min/max/avg temp/RH/VPD, coverage (gaps = offline), % time outside alert bands |
 | `tent_raw_shadow` | unparsed device shadows, for debugging field mappings on your specific hardware |
 

@@ -222,7 +222,9 @@ async def get_status(email: str, password: str) -> dict[str, Any]:
             online = connected if connected is not None else d.online
             entry: dict[str, Any] = {"name": d.name, "type": d.device_type, "online": online}
             if not online:
-                all_flags.append(f"ALERT: {d.name} is offline")
+                # the heater is switched off outside heating season, so offline is expected
+                prefix = "note" if d.device_type == "heater" else "ALERT"
+                all_flags.append(f"{prefix}: {d.name} is offline")
             if d.supports_point_log and d.device_type != "camera":
                 try:
                     snap = await api.get_point_log(tokens, d, start_time=now - 900, end_time=now)
