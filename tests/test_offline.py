@@ -49,4 +49,10 @@ for needle in ["tent temp 55.4", "RH 35.0", "light at 90%", "humidifier target 6
     assert needle in joined, needle
 assert "duct fan temp trigger" not in joined  # 27.78C = 82.0F matches plan
 print("history:", tent._history_stats([{"inTemp": 2200, "inHumi": 5500, "inVpd": 120}, {"inTemp": 1300, "inHumi": 8000, "inVpd": -6666}], 1))
+
+# probe-only setups (no inside sensor) still get temp/RH flags and history
+probe_flags = " | ".join(tent._flags(tent._sensor_block({"pTemp": 1300, "pHumi": 3500, "pVpd": 90}), {}))
+assert "tent temp 55.4" in probe_flags and "RH 35.0" in probe_flags, probe_flags
+h = tent._history_stats([{"pTemp": 2200, "pHumi": 5500, "pVpd": 120}], 1)
+assert h["temp_f"]["avg"] == 71.6 and h["rh_pct"]["avg"] == 55.0, h
 print("ALL OFFLINE TESTS PASSED")

@@ -167,7 +167,7 @@ def _summarize_settings(parsed: dict[str, Any]) -> dict[str, Any]:
 def _flags(sensors: dict[str, Any], settings: dict[str, Any]) -> list[str]:
     T = TARGETS
     f: list[str] = []
-    inside = sensors.get("inside", {})
+    inside = sensors.get("inside") or sensors.get("probe", {})  # some setups report only the probe
     t, h = inside.get("temp_f"), inside.get("rh_pct")
     if t is not None:
         if t < T["temp_alert_low_f"] or t > T["temp_alert_high_f"]:
@@ -215,8 +215,13 @@ async def get_status(email: str, password: str) -> dict[str, Any]:
         shadows = await _fetch_shadows(session, api, tokens, devices)
         all_flags: list[str] = []
         for d in devices:
-            entry: dict[str, Any] = {"name": d.name, "type": d.device_type, "online": d.online}
-            if not d.online:
+            sh = shadows.get(d.device_id)
+            # REST onlineStatus reads 0 even for live devices; the shadow's MQTT
+            # "connected" flag is authoritative when present.
+            connected = (sh or {}).get("parsed", {}).get("connection", {}).get("connected")
+            online = connected if connected is not None else d.online
+            entry: dict[str, Any] = {"name": d.name, "type": d.device_type, "online": online}
+            if not online:
                 all_flags.append(f"ALERT: {d.name} is offline")
             if d.supports_point_log and d.device_type != "camera":
                 try:
@@ -224,7 +229,6 @@ async def get_status(email: str, password: str) -> dict[str, Any]:
                     entry["sensors"] = _sensor_block(snap)
                 except Exception as err:
                     entry["sensors_error"] = str(err)
-            sh = shadows.get(d.device_id)
             if sh and "parsed" in sh:
                 entry["settings"] = _summarize_settings(sh["parsed"])
             elif sh:
@@ -275,9 +279,10 @@ def _history_stats(rows: list[dict[str, Any]], hours: int) -> dict[str, Any]:
             if isinstance(v, (int, float)) and v != -6666:
                 vals.append(v / TEMP_SCALE_FACTOR)
         return vals
-    temps = [c_to_f(v) for v in series("inTemp")]
-    rhs = series("inHumi")
-    vpds = series("inVpd")
+    k = "in" if series("inTemp") else "p"  # fall back to the probe when there's no inside sensor
+    temps = [c_to_f(v) for v in series(f"{k}Temp")]
+    rhs = series(f"{k}Humi")
+    vpds = series(f"{k}Vpd")
     T = TARGETS
 
     def stats(v):
