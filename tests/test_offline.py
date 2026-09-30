@@ -71,7 +71,7 @@ assert control.build_desired(control.plan_changes({"light_cycle_level_pct": 65})
 # 82°F round-trips through the raw °C×100 value the device stores
 assert control.FIELDS["duct_fan_temp_max_f"].from_raw(2778) == 82.0
 # nothing outside the allowlist or its ranges gets through
-for bad in [{}, {"heater_target_f": 66}, {"duct_fan_temp_max_f": 95}, {"duct_fan_rh_max": 40},
+for bad in [{}, {"heater_target_f": 80}, {"heater_target_f": 55}, {"heater_level": 2}, {"duct_fan_temp_max_f": 95}, {"duct_fan_rh_max": 40},
             {"humidifier_target_rh": 80}, {"light_cycle_level_pct": 10}, {"duct_fan_mode": "off"}, {"humidifier_mode": "manual"},
             {"duct_fan_rh_max": True}, {"humidifier_target_rh": "55"}]:
     try:
@@ -79,7 +79,11 @@ for bad in [{}, {"heater_target_f": 66}, {"duct_fan_temp_max_f": 95}, {"duct_fan
         raise AssertionError(f"accepted {bad}")
     except ValueError:
         pass
-assert all(f.device_type != "heater" and f.path[0] != "heat" for f in control.FIELDS.values())
+# the heater's only writable field is its target temperature
+assert [(n, f.path) for n, f in control.FIELDS.items() if f.device_type == "heater"] == [("heater_target_f", ("heat", "tTemp"))]
+assert control.build_desired(control.plan_changes({"heater_target_f": 66})["heater"]) == \
+    {"state": {"desired": {"heat": {"tTemp": 1889}}}}
+assert control.FIELDS["heater_target_f"].from_raw(1889) == 66.0
 # kill switch refuses before any network call
 os.environ["WRITES_ENABLED"] = "false"
 try:
@@ -97,7 +101,10 @@ for name, f in control.FIELDS.items():
         assert (schema[name]["minimum"], schema[name]["maximum"]) == (f.lo, f.hi), name
 assert set(schema) == set(control.FIELDS)
 # settings summary reads the firmware's humidifier target and light cycle level
-raw = {"hmdf": {"mode": 2, "auto": {"tHumi": 6000}}, "light": {"mode": 0, "cycle": {"lv": 82}}}
+raw = {"hmdf": {"mode": 2, "auto": {"tHumi": 6000}}, "light": {"mode": 0, "cycle": {"lv": 82}},
+       "heat": {"mode": 0, "state": 1, "tTemp": 2500, "lvMax": 100}}
 summ = tent._summarize_settings(parse_shadow_document({"state": {"reported": raw}}), raw)
 assert summ["humidifier"]["target_rh"] == 60.0 and summ["light"]["cycle_level_pct"] == 82, summ
+assert summ["heater"]["target_f"] == 77.0 and summ["heater"]["max_output_pct"] == 100, summ
+assert "heater target 77.0°F (plan band 64–68°F)" in tent._flags({}, summ)
 print("ALL OFFLINE TESTS PASSED")

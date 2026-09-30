@@ -1,7 +1,7 @@
 """Deliberate, bounded writes to Romas's Vivosun grow tent (v2).
 
-Only the settings in FIELDS can change, only within their ranges, and never the heater
-or any device's power state. Each call publishes one partial `desired` shadow update per
+Only the settings in FIELDS can change, only within their ranges, and never any
+device's power state. The heater exposes only its target temperature. Each call publishes one partial `desired` shadow update per
 device, then reads the device's `reported` state back, so a write the firmware ignores
 shows up as not applied instead of silently "succeeding".
 """
@@ -60,7 +60,8 @@ def _mode_field(device_type: str, key: str, modes: dict[str, int]) -> Field:
     return Field(device_type, (key, "mode"), None, None, modes.__getitem__, lambda raw: MODE_NAMES.get(raw, raw), modes)
 
 
-# Everything tent_configure can touch. No heater entries, no on/off switches.
+# Everything tent_configure can touch. No on/off switches. The heater gets only its target
+# (heat.tTemp, confirmed against the app), capped well below anything risky.
 FIELDS: dict[str, Field] = {
     "duct_fan_mode": _mode_field("controller", "dFan", DUCT_FAN_MODES),
     "duct_fan_temp_max_f": Field("controller", ("dFan", "auto", "tMax"), 70, 90, _f_to_raw_c,
@@ -69,6 +70,8 @@ FIELDS: dict[str, Field] = {
     "light_cycle_level_pct": Field("controller", ("light", "cycle", "lv"), 25, 100, int, lambda raw: raw),
     "humidifier_target_rh": Field("humidifier", ("hmdf", "auto", "tHumi"), 40, 70, _pct_to_raw, tent.scaled),
     "humidifier_mode": _mode_field("humidifier", "hmdf", HUMIDIFIER_MODES),
+    "heater_target_f": Field("heater", ("heat", "tTemp"), 60, 72, _f_to_raw_c,
+                             lambda raw: tent.c_to_f(tent.scaled(raw))),
 }
 
 

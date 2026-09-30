@@ -102,7 +102,9 @@ async def _fetch_shadows(session, api, tokens, devices) -> dict[str, dict[str, A
             return
         try:
             doc = json.loads(payload)
-            results[dev.device_id] = {"parsed": parse_shadow_document(doc), "raw_reported": doc.get("state", {}).get("reported", {})}
+            state = doc.get("state", {})
+            results[dev.device_id] = {"parsed": parse_shadow_document(doc), "raw_reported": state.get("reported", {}),
+                                      "raw_desired": state.get("desired", {}), "raw_delta": state.get("delta", {})}
         except Exception as err:  # keep going; report per-device error
             results[dev.device_id] = {"error": f"shadow parse failed: {err}"}
         if len(results) >= len(mqtt_devices):
@@ -173,8 +175,13 @@ def _summarize_settings(parsed: dict[str, Any], raw: dict[str, Any] | None = Non
                            "target_rh": scaled(target), "water_warning": h.get("water_warning")}
     if "heat" in parsed:
         h = parsed["heat"]
+        rh = raw.get("heat", {})
+        # this firmware keeps the target at heat.tTemp (confirmed against the app), not upstream's targetTemp
+        target = h.get("target_temp")
+        if target is None:
+            target = rh.get("tTemp")
         s["heater"] = {"on": h.get("on"), "mode": h.get("mode"), "level": h.get("level"), "state": h.get("state"),
-                       "target_f": c_to_f(scaled(h.get("target_temp")))}
+                       "target_f": c_to_f(scaled(target)), "max_output_pct": rh.get("lvMax")}
     if "plan" in parsed:
         s["growhub_plan_active_stage"] = parsed["plan"].get("active_stage")
     if "connection" in parsed:
@@ -265,7 +272,10 @@ async def get_raw(email: str, password: str) -> dict[str, Any]:
         api, tokens, devices = await _session_bootstrap(session, email, password)
         shadows = await _fetch_shadows(session, api, tokens, devices)
         return {"devices": [asdict(d) | {"camera_password": None, "camera_username": None} for d in devices],
-                "reported": {k: v.get("raw_reported", v.get("error")) for k, v in shadows.items()}}
+                "reported": {k: v.get("raw_reported", v.get("error")) for k, v in shadows.items()},
+                # desired = requested by the app/connector; delta = desired values the device hasn't applied yet
+                "desired": {k: v.get("raw_desired") for k, v in shadows.items() if v.get("raw_desired")},
+                "delta": {k: v.get("raw_delta") for k, v in shadows.items() if v.get("raw_delta")}}
 
 
 async def get_history(email: str, password: str, hours: int = 24) -> dict[str, Any]:
