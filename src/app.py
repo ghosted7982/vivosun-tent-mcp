@@ -21,7 +21,7 @@ import tent
 log = logging.getLogger()
 log.setLevel(logging.INFO)
 
-SERVER_INFO = {"name": "vivosun-tent", "version": "0.2.0"}
+SERVER_INFO = {"name": "vivosun-tent", "version": "0.3.0"}
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
 TOOLS = [
@@ -58,33 +58,27 @@ TOOLS = [
         "annotations": {"readOnlyHint": True, "openWorldHint": True},
     },
     {
+        "name": "tent_settings",
+        "title": "Grow tent: editable settings",
+        "description": (
+            "Every setting tent_configure can change, with its current value on the devices and the allowed "
+            "values or range. Read this before changing anything. Read-only."
+        ),
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "annotations": {"readOnlyHint": True, "openWorldHint": True},
+    },
+    {
         "name": "tent_configure",
         "title": "Grow tent: change settings",
         "description": (
-            "Change a few tent settings on the real devices. Only these, only in these ranges: duct fan mode "
-            "(auto/cycle/manual), duct fan auto triggers (temp max 70–90°F, RH max 50–85%), light mode "
-            "(cycle = run the on/off schedule at the cycle level; manual = fixed manual level), light cycle level "
-            "(25–100%), humidifier mode (auto/cycle), humidifier auto target RH (40–70%). The humidifier only "
-            "aims for its target RH in auto mode. Heater target temperature (60–72°F) only; cannot change other "
-            "heater settings or turn anything on/off. "
-            "Confirm the exact change with Romas before calling. Returns before/requested/reported per setting; "
-            "'applied: false' means the device has not confirmed it yet."
+            "Change settings on the real devices: duct fan, circulation fan, light (mode, level, spectrum, "
+            "schedule), humidifier, heater target (60–72°F only), probe alert thresholds and calibration, buzzer "
+            "and screen timeout. Every value is range-checked; nothing can switch a device off, and other heater "
+            "settings are not writable. Call tent_settings first for current values. Confirm the exact change "
+            "with Romas before calling. Returns before/requested/reported per setting; 'applied: false' means "
+            "the device has not confirmed it."
         ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "duct_fan_mode": {"type": "string", "enum": list(control.DUCT_FAN_MODES)},
-                "duct_fan_temp_max_f": {"type": "number", "minimum": 70, "maximum": 90},
-                "duct_fan_rh_max": {"type": "number", "minimum": 50, "maximum": 85},
-                "light_mode": {"type": "string", "enum": list(control.LIGHT_MODES)},
-                "light_cycle_level_pct": {"type": "integer", "minimum": 25, "maximum": 100},
-                "humidifier_target_rh": {"type": "number", "minimum": 40, "maximum": 70},
-                "humidifier_mode": {"type": "string", "enum": list(control.HUMIDIFIER_MODES)},
-                "heater_target_f": {"type": "number", "minimum": 60, "maximum": 72},
-            },
-            "minProperties": 1,
-            "additionalProperties": False,
-        },
+        "inputSchema": control.input_schema(),
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True,
                         "openWorldHint": True},
     },
@@ -129,6 +123,8 @@ def _call_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
             data = asyncio.run(tent.get_history(s["email"], s["password"], int(args.get("hours", 24))))
         elif name == "tent_raw_shadow":
             data = asyncio.run(tent.get_raw(s["email"], s["password"]))
+        elif name == "tent_settings":
+            data = asyncio.run(control.settings(s["email"], s["password"]))
         elif name == "tent_configure":
             data = asyncio.run(control.configure(s["email"], s["password"], args))
         else:
